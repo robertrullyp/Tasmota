@@ -6,6 +6,7 @@
 ** https://github.com/Skiars/berry/blob/master/LICENSE
 ********************************************************************/
 #include "berry.h"
+#include "../../berry_custom/src/modules.h"
 
 /* this file contains the declaration of the module table. */
 
@@ -39,6 +40,17 @@ be_extern_native_module(gpio);
 be_extern_native_module(display);
 be_extern_native_module(energy);
 be_extern_native_module(webserver);
+#ifdef USE_BERRY_HTTPSERVER
+be_extern_native_module(httpserver);
+
+#ifdef USE_BERRY_WSSERVER
+be_extern_native_module(wsserver);
+#endif // USE_BERRY_WSSERVER
+
+#ifdef USE_BERRY_WEBFILES
+be_extern_native_module(webfiles);
+#endif // USE_BERRY_WEBFILES
+#endif // USE_BERRY_HTTPSERVER
 be_extern_native_module(flash);
 be_extern_native_module(path);
 be_extern_native_module(unishox);
@@ -54,7 +66,11 @@ be_extern_native_module(TFL);
 be_extern_native_module(mdns);
 #ifdef USE_ZIGBEE
 be_extern_native_module(zigbee);
+be_extern_native_module(matter_zigbee);
 #endif // USE_ZIGBEE
+#ifdef USE_BERRY_CAM
+be_extern_native_module(cam);
+#endif // USE_BERRY_CAM
 // BLE
 be_extern_native_module(MI32);
 be_extern_native_module(BLE);
@@ -67,6 +83,14 @@ be_extern_native_module(haspmota);
 #endif // USE_LVGL_HASPMOTA
 #endif // USE_LVGL
 #ifdef USE_MATTER_DEVICE
+#ifdef USE_WS2812
+#ifdef USE_BERRY_ANIMATION
+be_extern_native_module(animation);
+#ifdef USE_BERRY_ANIMATION_DSL
+be_extern_native_module(animation_dsl);
+#endif // USE_BERRY_ANIMATION_DSL
+#endif // USE_BERRY_ANIMATION
+#endif // USE_WS2812
 be_extern_native_module(matter);
 #endif // USE_MATTER_DEVICE
 
@@ -147,8 +171,10 @@ BERRY_LOCAL const bntvmodule_t* const be_module_table[] = {
     &be_native_module(unishox),
 #endif // USE_UNISHOX_COMPRESSION
 
-#ifdef USE_WS2812
+#if defined(USE_WS2812) && !defined(USE_WS2812_FORCE_NEOPIXELBUS)
+  #ifdef USE_BERRY_ANIMATE
     &be_native_module(animate),
+  #endif // USE_BERRY_ANIMATE
 #endif // USE_WS2812
 
 #ifdef USE_LVGL
@@ -165,14 +191,24 @@ BERRY_LOCAL const bntvmodule_t* const be_module_table[] = {
 #ifdef USE_WEBSERVER
     &be_native_module(webserver),
 #endif // USE_WEBSERVER
+#ifdef USE_BERRY_HTTPSERVER
+    &be_native_module(httpserver),
+#ifdef USE_BERRY_WSSERVER
+    &be_native_module(wsserver),
+#endif // USE_BERRY_WSSERVER
+#ifdef USE_BERRY_WEBFILES
+    &be_native_module(webfiles),
+#endif // USE_BERRY_WEBFILES
+#endif // USE_BERRY_HTTPSERVER
 #ifdef USE_ZIGBEE
     &be_native_module(zigbee),
+    &be_native_module(matter_zigbee),
 #endif // USE_ZIGBEE
     &be_native_module(flash),
     &be_native_module(partition_core),
     &be_native_module(crc),
     &be_native_module(crypto),
-#if defined(USE_BERRY_ULP) && ((CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32S3))
+#if defined(USE_BERRY_ULP) && defined(CONFIG_ULP_COPROC_ENABLED)
     &be_native_module(ULP),
 #endif // USE_BERRY_ULP
 #if defined(USE_BERRY_TF_LITE)
@@ -182,18 +218,31 @@ BERRY_LOCAL const bntvmodule_t* const be_module_table[] = {
     &be_native_module(MI32),
     &be_native_module(BLE),
 #endif //USE_MI_ESP32
+#ifdef USE_BERRY_CAM
+    &be_native_module(cam),
+#endif 
 #ifdef USE_DISCOVERY
     &be_native_module(mdns),
 #endif // USE_DISCOVERY
 #ifdef USE_MATTER_DEVICE
     &be_native_module(matter),
 #endif // USE_MATTER_DEVICE
+#ifdef USE_WS2812
+#ifdef USE_BERRY_ANIMATION
+    &be_native_module(animation),
+#ifdef USE_BERRY_ANIMATION_DSL
+    &be_native_module(animation_dsl),
+#endif // USE_BERRY_ANIMATION_DSL
+#endif // USE_BERRY_ANIMATION
+#endif // USE_WS2812
 #endif // TASMOTA
+    CUSTOM_NATIVE_MODULES
     /* user-defined modules register end */
     NULL /* do not remove */
 };
 
 be_extern_native_class(dyn);
+be_extern_native_class(sortedmap);
 be_extern_native_class(tasmota);
 be_extern_native_class(Trigger);
 be_extern_native_class(Driver);
@@ -207,6 +256,7 @@ be_extern_native_class(Wire);
 be_extern_native_class(I2C_Driver);
 be_extern_native_class(AXP192);
 be_extern_native_class(AXP202);
+be_extern_native_class(AXP2102);
 be_extern_native_class(OneWire);
 be_extern_native_class(Leds_ntv);
 be_extern_native_class(Leds);
@@ -223,6 +273,7 @@ be_extern_native_class(udp);
 be_extern_native_class(webclient);
 be_extern_native_class(tcpclient);
 be_extern_native_class(tcpclientasync);
+be_extern_native_class(webserver_async);
 be_extern_native_class(tcpserver);
 be_extern_native_class(energy_struct);
 // LVGL core classes
@@ -241,10 +292,15 @@ be_extern_native_class(lv_clock_icon);
 
 be_extern_native_class(int64);
 
+#ifdef USE_BERRY_IMAGE
+be_extern_native_class(img);
+#endif // USE_BERRY_IMAGE
+
 BERRY_LOCAL bclass_array be_class_table = {
 #ifdef TASMOTA
     /* first list are direct classes */
     &be_native_class(dyn),
+    &be_native_class(sortedmap),
     &be_native_class(tasmota),
     &be_native_class(Trigger),
     &be_native_class(Driver),
@@ -264,18 +320,20 @@ BERRY_LOCAL bclass_array be_class_table = {
     &be_native_class(I2C_Driver),
     &be_native_class(AXP192),
     &be_native_class(AXP202),
+    &be_native_class(AXP2102),
 #endif // USE_I2C
     &be_native_class(md5),
-#ifdef USE_WEBCLIENT
     &be_native_class(udp),
     &be_native_class(webclient),
     &be_native_class(tcpclient),
     &be_native_class(tcpclientasync),
-#endif // USE_WEBCLIENT
+#ifdef USE_BERRY_DEBUG
+    &be_native_class(webserver_async),  // include only when USE_BERRY_DEBUG is enabled
+#endif // USE_BERRY_DEBUG
 #ifdef USE_BERRY_TCPSERVER
     &be_native_class(tcpserver),
 #endif // USE_BERRY_TCPSERVER
-#ifdef USE_WS2812
+#if defined(USE_WS2812) && !defined(USE_WS2812_FORCE_NEOPIXELBUS)
     &be_native_class(Leds_ntv),
     &be_native_class(Leds),
 #endif // USE_WS2812
@@ -296,6 +354,10 @@ BERRY_LOCAL bclass_array be_class_table = {
     &be_native_class(lv_clock_icon),
 #endif // USE_LVGL
 
+#ifdef USE_BERRY_IMAGE
+    &be_native_class(img),
+#endif // USE_BERRY_IMAGE
+
 #if defined(USE_I2S_AUDIO_BERRY) && (ESP_IDF_VERSION_MAJOR >= 5)
     &be_native_class(AudioGenerator),
     &be_native_class(AudioFileSource),
@@ -313,6 +375,7 @@ BERRY_LOCAL bclass_array be_class_table = {
 #if defined(USE_BERRY_INT64) || defined(USE_MATTER_DEVICE)
     &be_native_class(int64),
 #endif
+    CUSTOM_NATIVE_CLASSES
     NULL, /* do not remove */
 };
 

@@ -488,7 +488,10 @@ static void new_var(bparser *parser, bstring *name, bexpdesc *var)
         var->v.idx = new_localvar(parser, name); /* if local, contains the index in current local var list */
     } else {
         init_exp(var, ETGLOBAL, 0);
-        var->v.idx = be_global_new(parser->vm, name);
+        var->v.idx = be_global_find(parser->vm, name);
+        if (var->v.idx < 0) {
+            var->v.idx = be_global_new(parser->vm, name);
+        }
         if (var->v.idx > (int)IBx_MASK) {
             push_error(parser,
                 "too many global variables (in '%s')", str(name));
@@ -1548,7 +1551,7 @@ static void class_stmt(bparser *parser)
         bexpdesc e1;                        /* if inline class, we add a second local variable for _class */
         init_exp(&e1, ETLOCAL, 0);
         e1.v.idx = new_localvar(parser, class_str);
-        be_code_setvar(parser->finfo, &e1, &e, 1);
+        be_code_setvar(parser->finfo, &e1, &e, btrue);
 
         begin_varinfo(parser, class_str);
 

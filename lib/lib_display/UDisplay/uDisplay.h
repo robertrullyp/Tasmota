@@ -97,7 +97,7 @@ enum uColorType { uCOLOR_BW, uCOLOR_COLOR };
 #define UDISP_WHITE       0xFFFF      /* 255, 255, 255 */
 #define UDISP_ORANGE      0xFD20      /* 255, 165,   0 */
 #define UDISP_GREENYELLOW 0xAFE5      /* 173, 255,  47 */
-#define UDISP_PINK        0xF81F
+#define UDISP_PINK        0xFc18      /* 255, 128, 192 */
 
 #ifdef ESP8266
 #define PIN_OUT_SET 0x60000304
@@ -112,7 +112,7 @@ enum uColorType { uCOLOR_BW, uCOLOR_COLOR };
 #undef GPIO_SET_SLOW
 #undef GPIO_CLR_SLOW
 
-#if CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6
+#if CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C5 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32P4
 #define GPIO_CLR(A) GPIO.out_w1tc.val = (1 << A)
 #define GPIO_SET(A) GPIO.out_w1ts.val = (1 << A)
 #else // plain ESP32
@@ -396,7 +396,7 @@ class uDisplay : public Renderer {
 #if ESP_IDF_VERSION_MAJOR < 5
    esp_rgb_panel_t *_rgb_panel;
 #endif //ESP_IDF_VERSION_MAJOR < 5
-   uint16_t *rgb_fb;
+   
 
 
    esp_lcd_i80_bus_handle_t _i80_bus = nullptr;
