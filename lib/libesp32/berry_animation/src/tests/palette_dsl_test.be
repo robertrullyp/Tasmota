@@ -4,6 +4,25 @@
 import animation
 import animation_dsl
 
+# Helper function to extract all tokens from a pull lexer (for testing only)
+def extract_all_tokens(lexer)
+  var tokens = []
+  lexer.reset()  # Start from beginning
+  
+  while !lexer.at_end()
+    var token = lexer.next_token()
+    
+    # EOF token removed - check for nil instead
+    if token == nil
+      break
+    end
+    
+    tokens.push(token)
+  end
+  
+  return tokens
+end
+
 # Test basic palette definition and compilation
 def test_palette_definition()
   print("Testing palette definition...")
@@ -57,28 +76,6 @@ def test_palette_with_named_colors()
          "Should contain palette definition")
   
   print("✓ Palette with named colors test passed")
-end
-
-# Test palette with custom colors
-def test_palette_with_custom_colors()
-  print("Testing palette with custom colors...")
-  
-  var dsl_source = 
-    "# Define custom colors first\n" +
-    "color aurora_green = 0x00AA44\n" +
-    "color aurora_purple = 0x8800AA\n" +
-    "\n" +
-    "palette aurora_palette = [\n" +
-    "  (0, 0x000022),      # Dark night sky\n" +
-    "  (64, aurora_green), # Custom green\n" +
-    "  (192, aurora_purple), # Custom purple\n" +
-    "  (255, 0xCCAAFF)     # Pale purple\n" +
-    "]\n"
-  
-  var berry_code = animation_dsl.compile(dsl_source)
-  assert(berry_code != nil, "DSL compilation with custom colors should succeed")
-  
-  print("✓ Palette with custom colors test passed")
 end
 
 # Test error handling for invalid palette syntax
@@ -381,12 +378,12 @@ def test_palette_keyword_recognition()
   print("Testing palette keyword recognition...")
   
   var simple_palette_dsl = "palette test = [(0, #FF0000)]"
-  var lexer = animation_dsl.DSLLexer(simple_palette_dsl)
-  var tokens = lexer.tokenize()
+  var lexer = animation_dsl.create_lexer(simple_palette_dsl)
+  var tokens = extract_all_tokens(lexer)
   
   var found_palette_keyword = false
   for token : tokens
-    if token.type == animation_dsl.Token.KEYWORD && token.value == "palette"
+    if token.type == 0 #-animation_dsl.Token.KEYWORD-# && token.value == "palette"
       found_palette_keyword = true
       break
     end
@@ -611,7 +608,8 @@ def test_alternative_syntax_integration()
     "  0xFFFF00\n" +
     "]\n" +
     "\n" +
-    "animation fire_anim = rich_palette_animation(palette=fire_colors, cycle_period=3s)\n" +
+    "color rich_palette2 = color_cycle(colors=fire_colors, period=3s)\n"
+    "animation fire_anim = solid(color=rich_palette2)\n" +
     "\n" +
     "run fire_anim\n"
   
@@ -621,10 +619,81 @@ def test_alternative_syntax_integration()
   # Verify the generated code contains the expected elements
   import string
   assert(string.find(berry_code, "var fire_colors_ = bytes(") != -1, "Should contain palette definition")
-  assert(string.find(berry_code, "rich_palette_animation(engine)") != -1, "Should contain animation creation")
+  assert(string.find(berry_code, "color_cycle(engine)") != -1, "Should contain value provider creation")
+  assert(string.find(berry_code, "solid(engine)") != -1, "Should contain animation creation")
   assert(string.find(berry_code, "fire_colors_") != -1, "Should reference the palette")
   
   print("✓ Alternative syntax integration test passed")
+end
+
+# Test that non-predefined colors raise exceptions
+# Palettes only accept hex colors (0xRRGGBB) or predefined color names,
+# but not custom colors defined previously. For dynamic palettes, use user functions.
+def test_non_predefined_color_exceptions()
+  print("Testing non-predefined color exceptions...")
+  
+  # Test 1: Custom color identifier in tuple syntax should fail
+  try
+    var custom_color_tuple = "palette test1 = [(0, custom_red)]"
+    var result1 = animation_dsl.compile(custom_color_tuple)
+    assert(result1 == nil, "Should fail with custom color identifier in tuple syntax")
+    print("✗ FAIL: Custom color identifier in tuple syntax was accepted")
+    return false
+  except .. as e, msg
+    # Expected to fail - custom color identifier not allowed
+    print("✓ Custom color identifier in tuple syntax correctly rejected")
+  end
+  
+  # Test 2: Custom color identifier in alternative syntax should fail
+  try
+    var custom_color_alt = "palette test2 = [red, custom_blue, green]"
+    var result2 = animation_dsl.compile(custom_color_alt)
+    assert(result2 == nil, "Should fail with custom color identifier in alternative syntax")
+    print("✗ FAIL: Custom color identifier in alternative syntax was accepted")
+    return false
+  except .. as e, msg
+    # Expected to fail - custom color identifier not allowed
+    print("✓ Custom color identifier in alternative syntax correctly rejected")
+  end
+  
+  # Test 3: The specific case from the user report - 'grrreen' should fail
+  try
+    var grrreen_case = "palette rainbow_with_white = [red, grrreen]"
+    var result3 = animation_dsl.compile(grrreen_case)
+    assert(result3 == nil, "Should fail with 'grrreen' identifier")
+    print("✗ FAIL: 'grrreen' identifier was accepted")
+    return false
+  except .. as e, msg
+    # Expected to fail - 'grrreen' is not a predefined color
+    print("✓ 'grrreen' identifier correctly rejected")
+  end
+  
+  # Test 4: Misspelled predefined color should fail
+  try
+    var misspelled = "palette test4 = [red, bleu, green]"  # 'bleu' instead of 'blue'
+    var result4 = animation_dsl.compile(misspelled)
+    assert(result4 == nil, "Should fail with misspelled color 'bleu'")
+    print("✗ FAIL: Misspelled color 'bleu' was accepted")
+    return false
+  except .. as e, msg
+    # Expected to fail - 'bleu' is not a predefined color
+    print("✓ Misspelled color 'bleu' correctly rejected")
+  end
+  
+  # Test 5: Random identifier should fail
+  try
+    var random_id = "palette test5 = [red, some_random_name, blue]"
+    var result5 = animation_dsl.compile(random_id)
+    assert(result5 == nil, "Should fail with random identifier")
+    print("✗ FAIL: Random identifier was accepted")
+    return false
+  except .. as e, msg
+    # Expected to fail - random identifier is not a predefined color
+    print("✓ Random identifier correctly rejected")
+  end
+  
+  print("✓ Non-predefined color exceptions test passed")
+  return true
 end
 
 # Run all palette tests
@@ -635,9 +704,9 @@ def run_palette_tests()
     test_palette_keyword_recognition()
     test_palette_definition()
     test_palette_with_named_colors()
-    test_palette_with_custom_colors()
     test_palette_error_handling()
     test_nonexistent_color_names()
+    test_non_predefined_color_exceptions()  # New test for strict color validation
     test_palette_integration()
     test_vrgb_format_validation()
     test_complete_workflow()

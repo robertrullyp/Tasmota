@@ -13,19 +13,19 @@ var engine = animation.init_strip()
 
 var strip_len_ = animation.strip_length(engine)
 # Base aurora animation with slow flowing colors
-var red_eye_ = animation.beacon_animation(engine)
+var red_eye_ = animation.beacon(engine)
 red_eye_.color = 0xFFFF0000
 red_eye_.pos = (def (engine)
   var provider = animation.cosine_osc(engine)
   provider.min_value = 0
-  provider.max_value = animation.create_closure_value(engine, def (self) return self.resolve(strip_len_) - 2 end)
+  provider.max_value = animation.create_closure_value(engine, def (engine) return animation.resolve(strip_len_) - 2 end)
   provider.duration = 5000
   return provider
 end)(engine)
 red_eye_.beacon_size = 3  # small 3 pixels eye
 red_eye_.slew_size = 2  # with 2 pixel shading around
-engine.add_animation(red_eye_)
-engine.start()
+engine.add(red_eye_)
+engine.run()
 
 
 #- Original DSL source:
@@ -35,7 +35,7 @@ engine.start()
 set strip_len = strip_length()
 
 # Base aurora animation with slow flowing colors
-animation red_eye = beacon_animation(
+animation red_eye = beacon(
   color = red
   pos = cosine_osc(min_value = 0, max_value = strip_len - 2, duration = 5s)
   beacon_size = 3       # small 3 pixels eye

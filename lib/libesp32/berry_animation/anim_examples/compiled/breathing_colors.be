@@ -19,13 +19,20 @@ var breathe_blue_ = 0xFF0000FF
 var breathe_purple_ = 0xFF800080
 var breathe_orange_ = 0xFFFF8000
 # Create breathing animation that cycles through colors
-var breathe_palette_ = bytes("00FF0000" "33FF8000" "66FFFF00" "9900FF00" "CC0000FF" "FF800080")
+var breathe_palette_ = bytes(
+  "00FF0000"  # Red
+  "33FF8000"  # Orange
+  "66FFFF00"  # Yellow
+  "9900FF00"  # Green
+  "CC0000FF"  # Blue
+  "FF800080"  # Purple
+)
 # Create a rich palette color provider
-var palette_pattern_ = animation.rich_palette(engine)
-palette_pattern_.palette = breathe_palette_  # palette
-palette_pattern_.cycle_period = 15000  # cycle period (defaults: smooth transition, 255 brightness)
+var palette_pattern_ = animation.rich_palette_color(engine)
+palette_pattern_.colors = breathe_palette_  # palette
+palette_pattern_.period = 15000  # cycle period (defaults: smooth transition, 255 brightness)
 # Create breathing animation using the palette
-var breathing_ = animation.breathe_animation(engine)
+var breathing_ = animation.breathe(engine)
 breathing_.color = palette_pattern_  # base animation
 breathing_.min_brightness = 100  # min brightness
 breathing_.max_brightness = 255  # max brightness
@@ -39,8 +46,8 @@ breathing_.opacity = (def (engine)
   return provider
 end)(engine)
 # Start the animation
-engine.add_animation(breathing_)
-engine.start()
+engine.add(breathing_)
+engine.run()
 
 
 #- Original DSL source:
@@ -67,13 +74,13 @@ palette breathe_palette = [
 ]
 
 # Create a rich palette color provider
-color palette_pattern = rich_palette(
-  palette=breathe_palette # palette
-  cycle_period=15s        # cycle period (defaults: smooth transition, 255 brightness)
+color palette_pattern = rich_palette_color(
+  colors=breathe_palette # palette
+  period=15s        # cycle period (defaults: smooth transition, 255 brightness)
 )
 
 # Create breathing animation using the palette
-animation breathing = breathe_animation(
+animation breathing = breathe(
   color=palette_pattern # base animation
   min_brightness=100    # min brightness
   max_brightness=255    # max brightness

@@ -1,15 +1,32 @@
 # Sequence Manager for Animation DSL
 # Handles async execution of animation sequences without blocking delays
 # Supports sub-sequences and repeat logic through recursive composition
+#
+# Extends parameterized_object to provide parameter management and playable interface,
+# allowing sequences to be treated uniformly with animations by the engine.
+#
+# Memory-optimized: Uses two parallel arrays instead of array of maps
+# - step_durations: encodes type and duration in a single integer
+# - step_refs: stores references (animation, closure, sequence_manager, or nil)
+#
+# Duration encoding:
+#   >= 0: play (ref=animation) or wait (ref=nil)
+#   -2: closure (ref=closure function)
+#   -3: subsequence (ref=sequence_manager)
 
-class SequenceManager
-  var engine          # Animation engine reference
+import "./core/param_encoder" as encode_constraints
+
+class sequence_manager : animation.parameterized_object
+  # static var DURATION_CLOSURE = -2
+  # static var DURATION_SUBSEQUENCE = -3
+  
+  # Non-parameter instance variables
   var active_sequence # Currently running sequence
   var sequence_state  # Current sequence execution state
   var step_index      # Current step in the sequence
   var step_start_time # When current step started
-  var steps           # List of sequence steps
-  var is_running      # Whether sequence is active
+  var step_durations  # List of duration/type values (int)
+  var step_refs       # List of references (animation, closure, sequence_manager, or nil)
   
   # Repeat-specific properties
   var repeat_count    # Number of times to repeat this sequence (-1 for forever, 0 for no repeat)
@@ -17,69 +34,56 @@ class SequenceManager
   var is_repeat_sequence # Whether this is a repeat sub-sequence
   
   def init(engine, repeat_count)
-    self.engine = engine
+    # Initialize parameter system with engine
+    super(self).init(engine)
+    
+    # Initialize non-parameter instance variables
     self.active_sequence = nil
     self.sequence_state = {}
     self.step_index = 0
     self.step_start_time = 0
-    self.steps = []
-    self.is_running = false
+    self.step_durations = []
+    self.step_refs = []
     
     # Repeat logic
-    self.repeat_count = repeat_count != nil ? repeat_count : 1  # Default: run once
+    self.repeat_count = repeat_count != nil ? repeat_count : 1  # Default: run once (can be function or number)
     self.current_iteration = 0
     self.is_repeat_sequence = repeat_count != nil && repeat_count != 1
   end
   
-  # Add a step to this sequence
-  def push_step(step)
-    self.steps.push(step)
-    return self
-  end
-  
   # Add a play step directly
   def push_play_step(animation_ref, duration)
-    self.steps.push({
-      "type": "play",
-      "animation": animation_ref,
-      "duration": duration != nil ? duration : 0
-    })
+    self.step_durations.push(duration != nil ? duration : 0)
+    self.step_refs.push(animation_ref)
     return self
   end
   
   # Add a wait step directly
   def push_wait_step(duration)
-    self.steps.push({
-      "type": "wait",
-      "duration": duration
-    })
+    self.step_durations.push(duration)
+    self.step_refs.push(nil)
     return self
   end
   
-  # Add an assignment step directly
-  def push_assign_step(closure)
-    self.steps.push({
-      "type": "assign",
-      "closure": closure
-    })
+  # Add a closure step directly (used for both assign and log steps)
+  def push_closure_step(closure)
+    self.step_durations.push(-2 #-self.DURATION_CLOSURE-#)
+    self.step_refs.push(closure)
     return self
   end
   
   # Add a repeat subsequence step directly
   def push_repeat_subsequence(sequence_manager)
-    self.steps.push({
-      "type": "subsequence",
-      "sequence_manager": sequence_manager
-    })
+    self.step_durations.push(-3 #-self.DURATION_SUBSEQUENCE-#)
+    self.step_refs.push(sequence_manager)
     return self
   end
-  
+
   # Start this sequence
   def start(time_ms)
     # Stop any current sequence
     if self.is_running
       self.is_running = false
-      self.engine.clear()
       # Stop any sub-sequences
       self.stop_all_subsequences()
     end
@@ -90,9 +94,38 @@ class SequenceManager
     self.current_iteration = 0
     self.is_running = true
     
+    # Always set start_time for restart behavior
+    self.start_time = time_ms
+    
+    # FIXED: Check repeat count BEFORE starting execution
+    # If repeat_count is 0, don't execute at all
+    var resolved_repeat_count = self.get_resolved_repeat_count()
+    if resolved_repeat_count == 0
+      self.is_running = false
+      return self
+    end
+    
+    # Push iteration context to engine stack if this is a repeat sequence
+    if self.is_repeat_sequence
+      self.engine.push_iteration_context(self.current_iteration)
+    end
+    
     # Start executing if we have steps
-    if size(self.steps) > 0
-      self.execute_current_step(time_ms)
+    var num_steps = size(self.step_durations)
+    if num_steps > 0
+      # Execute all consecutive closure steps at the beginning atomically
+      while self.step_index < num_steps && self.step_durations[self.step_index] == -2 #-self.DURATION_CLOSURE-#
+        var closure_func = self.step_refs[self.step_index]
+        if closure_func != nil
+          closure_func(self.engine)
+        end
+        self.step_index += 1
+      end
+      
+      # Now execute the next non-closure step (usually play)
+      if self.step_index < num_steps
+        self.execute_current_step(time_ms)
+      end
     end
     
     return self
@@ -103,20 +136,25 @@ class SequenceManager
     if self.is_running
       self.is_running = false
       
+      # Pop iteration context from engine stack if this is a repeat sequence
+      if self.is_repeat_sequence
+        self.engine.pop_iteration_context()
+      end
+      
       # Stop any currently playing animations
-      if self.step_index < size(self.steps)
-        var current_step = self.steps[self.step_index]
-        if current_step["type"] == "play"
-          var anim = current_step["animation"]
-          self.engine.remove_animation(anim)
-        elif current_step["type"] == "subsequence"
-          var sub_seq = current_step["sequence_manager"]
-          sub_seq.stop()
+      var num_steps = size(self.step_durations)
+      if self.step_index < num_steps
+        var dur = self.step_durations[self.step_index]
+        var ref = self.step_refs[self.step_index]
+        if dur == -3 #-self.DURATION_SUBSEQUENCE-#
+          ref.stop()
+        elif dur != -2 #-self.DURATION_CLOSURE-# && ref != nil
+          # play step (dur is >= 0 or function, ref is animation)
+          self.engine.remove(ref)
         end
       end
       
-      # Clear engine and stop all sub-sequences
-      self.engine.clear()
+      # Stop all sub-sequences (but don't clear entire engine)
       self.stop_all_subsequences()
     end
     return self
@@ -124,171 +162,283 @@ class SequenceManager
   
   # Stop all sub-sequences in our steps
   def stop_all_subsequences()
-    for step : self.steps
-      if step["type"] == "subsequence"
-        var sub_seq = step["sequence_manager"]
-        sub_seq.stop()
+    var num_steps = size(self.step_durations)
+    var i = 0
+    while i < num_steps
+      if self.step_durations[i] == -3 #-self.DURATION_SUBSEQUENCE-#
+        self.step_refs[i].stop()
       end
+      i += 1
     end
     return self
   end
-  
+
   # Update sequence state - called from fast_loop
-  # Returns true if still running, false if completed
   def update(current_time)
-    if !self.is_running || size(self.steps) == 0
-      return false
-    end
-    
-    var current_step = self.steps[self.step_index]
-    
-    # Handle different step types
-    if current_step["type"] == "subsequence"
-      # Handle sub-sequence (including repeat sequences)
-      var sub_seq = current_step["sequence_manager"]
-      if !sub_seq.update(current_time)
-        # Sub-sequence finished, advance to next step
-        self.advance_to_next_step(current_time)
-      end
-    elif current_step["type"] == "assign"
-      # Assign steps are handled in batches by advance_to_next_step
-      # This should not happen in normal flow, but handle it just in case
-      self.execute_assign_steps_batch(current_time)
-    else
-      # Handle regular steps with duration
-      if current_step.contains("duration") && current_step["duration"] > 0
-        var elapsed = current_time - self.step_start_time
-        if elapsed >= current_step["duration"]
-          self.advance_to_next_step(current_time)
-        end
-      else
-        # Steps without duration complete immediately
-        self.advance_to_next_step(current_time)
-      end
-    end
-    
-    return self.is_running
-  end
-  
-  # Execute the current step
-  def execute_current_step(current_time)
-    if self.step_index >= size(self.steps)
-      self.complete_iteration(current_time)
+    var num_steps = size(self.step_durations)
+    if !self.is_running || num_steps == 0 || self.step_index >= num_steps
       return
     end
     
-    var step = self.steps[self.step_index]
+    var dur = self.step_durations[self.step_index]
     
-    if step["type"] == "play"
-      var anim = step["animation"]
-      self.engine.add_animation(anim)
-      anim.start(current_time)
+    # Only closure/subsequence have negative int markers, play/wait have >= 0 or function
+    if dur == -3 #-self.DURATION_SUBSEQUENCE-#
+      # Handle sub-sequence
+      var sub_seq = self.step_refs[self.step_index]
+      sub_seq.update(current_time)
+      if !sub_seq.is_running
+        self.advance_to_next_step(current_time)
+      end
+    elif dur == -2 #-self.DURATION_CLOSURE-#
+      # Closure steps are handled in batches
+      self.execute_closure_steps_batch(current_time)
+    else
+      # Handle regular steps with duration (play or wait)
+      # dur is either int >= 0, function, or bool
+      var duration_value = dur
+      if type(dur) == "function"
+        duration_value = dur(self.engine)
+      end
+      duration_value = int(duration_value)    # Force int, works for bool
       
-    elif step["type"] == "wait"
-      # Wait steps are handled by the update loop checking duration
-      # No animation needed for wait
-      
-    elif step["type"] == "stop"
-      var anim = step["animation"]
-      self.engine.remove_animation(anim)
-      
-    elif step["type"] == "assign"
-      # Assign steps should be handled in batches by execute_assign_steps_batch
-      # This should not happen in normal flow, but handle it for safety
-      var assign_closure = step["closure"]
-      if assign_closure != nil
-        assign_closure(self.engine)
+      if duration_value > 0
+        if current_time - self.step_start_time >= duration_value
+          self.advance_to_next_step(current_time)
+        end
+      else
+        # Duration is 0 - complete immediately
+        self.advance_to_next_step(current_time)
+      end
+    end
+  end
+  
+  # Execute the current step
+  # skip_budget limits how many consecutive immediate skips to prevent infinite loops
+  def execute_current_step(current_time, skip_budget)
+    if skip_budget == nil
+      skip_budget = size(self.step_durations) + 1  # Default: allow skipping all steps once
+    end
+    
+    var num_steps = size(self.step_durations)
+    if self.step_index >= num_steps
+      self.complete_iteration(current_time, skip_budget)
+      return
+    end
+    
+    var dur = self.step_durations[self.step_index]
+    var ref = self.step_refs[self.step_index]
+    
+    if dur == -3 #-self.DURATION_SUBSEQUENCE-#
+      # Start sub-sequence
+      ref.start(current_time)
+      # If subsequence immediately completed (e.g., repeat_count resolved to 0),
+      # advance to next step immediately to avoid black frame (if we have budget)
+      if !ref.is_running && skip_budget > 0
+        self.advance_to_next_step(current_time, skip_budget - 1)
+        return
+      end
+    elif dur == -2 #-self.DURATION_CLOSURE-#
+      # Closure steps should be handled in batches
+      if ref != nil
+        ref(self.engine)
+      end
+    elif ref != nil
+      # Play step (dur >= 0 and ref is animation)
+      # Check if animation is already in the engine
+      var animations = self.engine.get_animations()
+      var already_added = false
+      for existing_anim : animations
+        if existing_anim == ref
+          already_added = true
+          break
+        end
       end
       
-    elif step["type"] == "subsequence"
-      # Start sub-sequence (including repeat sequences)
-      var sub_seq = step["sequence_manager"]
-      sub_seq.start()
+      if !already_added
+        self.engine.add(ref)
+      end
+      
+      # Always restart the animation to ensure proper timing
+      ref.start(current_time)
     end
+    # else: wait step (dur >= 0 and ref is nil) - nothing to do
     
     self.step_start_time = current_time
   end
-  
+
   # Advance to the next step in the sequence
-  def advance_to_next_step(current_time)
-    # Stop current animations if step had duration
-    var current_step = self.steps[self.step_index]
-    if current_step["type"] == "play" && current_step.contains("duration")
-      var anim = current_step["animation"]
-      self.engine.remove_animation(anim)
+  def advance_to_next_step(current_time, skip_budget)
+    var num_steps = size(self.step_durations)
+
+    if skip_budget == nil
+      skip_budget = num_steps + 1
+    end
+    
+    # Get current animation ref BEFORE advancing (for atomic transition)
+    # If dur is not a special marker and ref is not nil, it's a play step
+    var dur = self.step_durations[self.step_index]
+    var ref = self.step_refs[self.step_index]
+    var current_anim = nil
+    if dur != -2 #-self.DURATION_CLOSURE-# && dur != -3 #-self.DURATION_SUBSEQUENCE-# && ref != nil
+      current_anim = ref
     end
     
     self.step_index += 1
     
-    if self.step_index >= size(self.steps)
-      self.complete_iteration(current_time)
+    if self.step_index >= num_steps
+      if current_anim != nil
+        self.engine.remove(current_anim)
+      end
+      self.complete_iteration(current_time, skip_budget)
     else
-      # Execute all consecutive assign steps atomically
-      self.execute_assign_steps_batch(current_time)
+      self.execute_closure_steps_batch_atomic(current_time, current_anim, skip_budget)
     end
   end
   
-  # Execute all consecutive assign steps in a batch to avoid black frames
-  def execute_assign_steps_batch(current_time)
-    # Execute all consecutive assign steps
-    while self.step_index < size(self.steps)
-      var step = self.steps[self.step_index]
-      if step["type"] == "assign"
-        # Execute assignment closure
-        var assign_closure = step["closure"]
-        if assign_closure != nil
-          assign_closure(self.engine)
-        end
-        self.step_index += 1
-      else
-        break
+  # Execute all consecutive closure steps in a batch to avoid black frames
+  def execute_closure_steps_batch(current_time)
+    var num_steps = size(self.step_durations)
+    
+    # Execute all consecutive closure steps
+    while self.step_index < num_steps && self.step_durations[self.step_index] == -2 #-self.DURATION_CLOSURE-#
+      var closure_func = self.step_refs[self.step_index]
+      if closure_func != nil
+        closure_func(self.engine)
+      end
+      self.step_index += 1
+    end
+    
+    # Now execute the next non-closure step
+    if self.step_index < num_steps
+      self.execute_current_step(current_time)
+    else
+      self.complete_iteration(current_time)
+    end
+  end
+  
+  # Atomic batch execution to eliminate black frames
+  def execute_closure_steps_batch_atomic(current_time, previous_anim, skip_budget)
+    if skip_budget == nil
+      skip_budget = size(self.step_durations) + 1
+    end
+    
+    var num_steps = size(self.step_durations)
+    
+    # Execute all consecutive closure steps
+    while self.step_index < num_steps && self.step_durations[self.step_index] == -2 #-self.DURATION_CLOSURE-#
+      var closure_func = self.step_refs[self.step_index]
+      if closure_func != nil
+        closure_func(self.engine)
+      end
+      self.step_index += 1
+    end
+    
+    # Check if the next step is the SAME animation
+    var is_same_animation = false
+    if self.step_index < num_steps && previous_anim != nil
+      var next_dur = self.step_durations[self.step_index]
+      var next_ref = self.step_refs[self.step_index]
+      # If not a special marker and same animation ref
+      if next_dur != -2 #-self.DURATION_CLOSURE-# && next_dur != -3 #-self.DURATION_SUBSEQUENCE-# && next_ref == previous_anim
+        is_same_animation = true
       end
     end
     
-    # Now execute the next non-assign step
-    if self.step_index < size(self.steps)
-      self.execute_current_step(current_time)
+    if is_same_animation
+      # Same animation continuing - don't remove/re-add, but DO restart for timing sync
+      self.step_start_time = current_time
+      previous_anim.start(current_time)
     else
-      self.complete_iteration(current_time)
+      # Different animation or no next animation
+      # Start the next animation BEFORE removing the previous one
+      if self.step_index < num_steps
+        self.execute_current_step(current_time, skip_budget)
+      end
+      
+      # NOW it's safe to remove the previous animation (no gap)
+      if previous_anim != nil
+        self.engine.remove(previous_anim)
+      end
+    end
+    
+    # Handle completion
+    if self.step_index >= num_steps
+      self.complete_iteration(current_time, skip_budget)
     end
   end
-  
+
   # Complete current iteration and check if we should repeat
-  def complete_iteration(current_time)
+  def complete_iteration(current_time, skip_budget)
+    if skip_budget == nil
+      skip_budget = size(self.step_durations) + 1
+    end
+    
     self.current_iteration += 1
     
+    # Update iteration context in engine stack if this is a repeat sequence
+    if self.is_repeat_sequence
+      self.engine.update_current_iteration(self.current_iteration)
+    end
+    
+    # Resolve repeat count (may be a function)
+    var resolved_repeat_count = self.get_resolved_repeat_count()
+    
     # Check if we should continue repeating
-    if self.repeat_count == -1 || self.current_iteration < self.repeat_count
-      # Start next iteration
+    if resolved_repeat_count == -1 || self.current_iteration < resolved_repeat_count
+      # If we've exhausted skip budget, stop here and let next update() continue
+      # This prevents infinite loops when all steps are skipped
+      if skip_budget <= 0
+        self.step_index = 0
+        return
+      end
+      
+      # Start next iteration - execute all initial closures atomically
       self.step_index = 0
-      self.execute_current_step(current_time)
+      var num_steps = size(self.step_durations)
+      
+      # Execute all consecutive closure steps at the beginning atomically
+      while self.step_index < num_steps && self.step_durations[self.step_index] == -2 #-self.DURATION_CLOSURE-#
+        var closure_func = self.step_refs[self.step_index]
+        if closure_func != nil
+          closure_func(self.engine)
+        end
+        self.step_index += 1
+      end
+      
+      # Now execute the next non-closure step (usually play)
+      if self.step_index < num_steps
+        self.execute_current_step(current_time, skip_budget - 1)
+      end
     else
       # All iterations complete
       self.is_running = false
+      
+      # Pop iteration context from engine stack if this is a repeat sequence
+      if self.is_repeat_sequence
+        self.engine.pop_iteration_context()
+      end
     end
+  end
+  
+  # Resolve repeat count (handle both functions and numbers)
+  # Converts booleans to integers: true -> 1, false -> 0
+  def get_resolved_repeat_count()
+    var count = nil
+    if type(self.repeat_count) == "function"
+      count = self.repeat_count(self.engine)
+    else
+      count = self.repeat_count
+    end
+    
+    # Convert to integer (handles booleans: true -> 1, false -> 0)
+    return int(count)
   end
   
   # Check if sequence is running
   def is_sequence_running()
     return self.is_running
   end
-  
-  # Get current step info for debugging
-  def get_current_step_info()
-    if !self.is_running || self.step_index >= size(self.steps)
-      return nil
-    end
-    
-    return {
-      "step_index": self.step_index,
-      "total_steps": size(self.steps),
-      "current_step": self.steps[self.step_index],
-      "elapsed_ms": self.engine.time_ms - self.step_start_time,
-      "repeat_count": self.repeat_count,
-      "current_iteration": self.current_iteration,
-      "is_repeat_sequence": self.is_repeat_sequence
-    }
-  end
 end
 
-return {'SequenceManager': SequenceManager}
+return {'sequence_manager': sequence_manager }

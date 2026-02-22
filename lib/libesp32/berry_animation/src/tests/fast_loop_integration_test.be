@@ -29,7 +29,7 @@ class TestAnimation : animation.animation
     self.render_called = true
     # Fill frame with red for testing
     if frame != nil
-      frame.fill_pixels(0xFF0000FF)
+      frame.fill_pixels(frame.pixels, 0xFF0000FF)
     end
     return true
   end
@@ -37,7 +37,7 @@ class TestAnimation : animation.animation
   def update(time_ms)
     self.update_called = true
     self.update_time = time_ms
-    return super(self).update(time_ms)
+    super(self).update(time_ms)
   end
   
   def reset_test_state()
@@ -56,7 +56,7 @@ def test_fast_loop_registration()
   assert(engine.fast_loop_closure == nil)
   
   # Start the engine
-  engine.start()
+  engine.run()
   
   # Check that fast_loop_closure is now set
   assert(engine.fast_loop_closure != nil)
@@ -75,21 +75,24 @@ def test_on_tick_performance()
   var strip = global.Leds(10)
   var engine = animation.create_engine(strip)
   
+  # Set tick_ms to 5 for testing (default is 50ms)
+  engine.tick_ms = 5
+  
   # Add a test animation
   var anim = TestAnimation(engine)
   anim.priority = 1
-  engine.add_animation(anim)
+  engine.add(anim)
   anim.start(tasmota.millis())
   
   # Start the engine
-  engine.start()
+  engine.run()
   
   # Set initial time
   var initial_time = 1000
   tasmota.set_millis(initial_time)
   engine.last_update = initial_time
   
-  # Call on_tick with less than 5ms elapsed
+  # Call on_tick with less than 5ms elapsed (should be throttled)
   tasmota.set_millis(initial_time + 3)
   var result = engine.on_tick()
   
@@ -97,7 +100,7 @@ def test_on_tick_performance()
   assert(result == true)
   assert(anim.render_called == false)
   
-  # Call on_tick with more than 5ms elapsed
+  # Call on_tick with more than 5ms elapsed (should render)
   tasmota.set_millis(initial_time + 10)
   result = engine.on_tick()
   
@@ -125,13 +128,13 @@ def test_animation_update_timing()
   # Add a test animation
   var anim = TestAnimation(engine)
   anim.priority = 1
-  engine.add_animation(anim)
+  engine.add(anim)
   
   # Start the animation and engine
   var start_time = 2000
   tasmota.set_millis(start_time)
   anim.start(start_time)
-  engine.start()
+  engine.run()
   
   # Call on_tick with a specific time
   var update_time = start_time + 100

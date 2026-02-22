@@ -15,26 +15,32 @@ var engine = animation.init_strip()
 
 var fire_colors_ = bytes("00000000" "40800000" "80FF0000" "C0FF8000" "FFFFFF00")
 # Define an ocean palette
-var ocean_colors_ = bytes("00000080" "400000FF" "8000FFFF" "C000FF80" "FF008000")
+var ocean_colors_ = bytes(
+  "00000080"  # Navy blue
+  "400000FF"  # Blue
+  "8000FFFF"  # Cyan
+  "C000FF80"  # Spring green
+  "FF008000"  # Green
+)
 # Create animations using the palettes
-var fire_anim_ = animation.rich_palette_animation(engine)
-fire_anim_.palette = fire_colors_
-fire_anim_.cycle_period = 5000
-var ocean_anim_ = animation.rich_palette_animation(engine)
-ocean_anim_.palette = ocean_colors_
-ocean_anim_.cycle_period = 8000
+var fire_anim_ = animation.rich_palette(engine)
+fire_anim_.colors = fire_colors_
+fire_anim_.period = 5000
+var ocean_anim_ = animation.rich_palette(engine)
+ocean_anim_.colors = ocean_colors_
+ocean_anim_.period = 8000
 # Sequence to show both palettes
-var palette_demo_ = animation.SequenceManager(engine)
+var palette_demo_ = animation.sequence_manager(engine)
   .push_play_step(fire_anim_, 10000)
   .push_wait_step(1000)
   .push_play_step(ocean_anim_, 10000)
   .push_wait_step(1000)
-  .push_repeat_subsequence(animation.SequenceManager(engine, 2)
+  .push_repeat_subsequence(animation.sequence_manager(engine, 2)
     .push_play_step(fire_anim_, 3000)
     .push_play_step(ocean_anim_, 3000)
     )
-engine.add_sequence_manager(palette_demo_)
-engine.start()
+engine.add(palette_demo_)
+engine.run()
 
 
 #- Original DSL source:
@@ -44,27 +50,21 @@ engine.start()
 #strip length 30
 
 # Define a fire palette
-palette fire_colors = [
-  (0, 0x000000),    # Black
-  (64, 0x800000),   # Dark red
-  (128, 0xFF0000),  # Red
-  (192, 0xFF8000),  # Orange
-  (255, 0xFFFF00)   # Yellow
-]
+palette fire_colors = [ (0, 0x000000), (64, 0x800000), (128, 0xFF0000), (192, 0xFF8000), (255, 0xFFFF00) ]
 
 # Define an ocean palette
 palette ocean_colors = [
-  (0, 0x000080),    # Navy blue
+  (0, 0x000080)     # Navy blue
   (64, 0x0000FF),   # Blue
-  (128, 0x00FFFF),  # Cyan
+  (128, 0x00FFFF)   # Cyan
   (192, 0x00FF80),  # Spring green
   (255, 0x008000)   # Green
 ]
 
 # Create animations using the palettes
-animation fire_anim = rich_palette_animation(palette=fire_colors, cycle_period=5s)
+animation fire_anim = rich_palette(colors=fire_colors, period=5s)
 
-animation ocean_anim = rich_palette_animation(palette=ocean_colors, cycle_period=8s)
+animation ocean_anim = rich_palette(colors=ocean_colors, period=8s)
 
 # Sequence to show both palettes
 sequence palette_demo {

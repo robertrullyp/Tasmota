@@ -2,27 +2,17 @@ import animation
 import animation_dsl
 import string
 
-# Test to verify that mathematical methods in computed parameters are correctly transpiled to self.<func>()
+# Test to verify that mathematical methods in computed parameters are correctly transpiled to animation._math.<func>()
 
 def test_transpilation_case(dsl_code, expected_methods, test_name)
   print(f"\n  Testing: {test_name}")
   
-  var lexer = animation_dsl.DSLLexer(dsl_code)
-  var tokens = lexer.tokenize()
-  
-  if size(lexer.errors) > 0
-    print(f"    ❌ Lexer errors: {lexer.errors}")
-    return false
-  end
-  
-  var transpiler = animation_dsl.SimpleDSLTranspiler(tokens)
+  var lexer = animation_dsl.create_lexer(dsl_code)
+  var transpiler = animation_dsl.SimpleDSLTranspiler(lexer)
   var generated_code = transpiler.transpile()
   
   if generated_code == nil
     print("    ❌ Transpilation failed:")
-    for error : transpiler.errors
-      print(f"      {error}")
-    end
     return false
   end
   
@@ -30,7 +20,7 @@ def test_transpilation_case(dsl_code, expected_methods, test_name)
   
 
   
-  # Check that mathematical methods are prefixed with self.
+  # Check that mathematical methods are prefixed with animation._math.
   var methods_to_check = []
   if type(expected_methods) == "instance"  # Berry lists are of type "instance"
     methods_to_check = expected_methods
@@ -39,12 +29,12 @@ def test_transpilation_case(dsl_code, expected_methods, test_name)
   end
   
   for method : methods_to_check
-    var self_method = f"self.{method}("
+    var self_method = f"animation._math.{method}("
     if string.find(generated_code, self_method) < 0
-      print(f"    ❌ Expected to find 'self.{method}(' in generated code")
+      print(f"    ❌ Expected to find 'animation._math.{method}(' in generated code")
       return false
     else
-      print(f"    ✅ Found 'self.{method}(' in generated code")
+      print(f"    ✅ Found 'animation._math.{method}(' in generated code")
     end
   end
   
@@ -60,43 +50,33 @@ def test_transpilation_case(dsl_code, expected_methods, test_name)
 end
 
 def test_non_math_functions(dsl_code)
-  print("\n  Testing: Non-math functions should NOT be prefixed with self.")
+  print("\n  Testing: Non-math functions should NOT be prefixed with animation._math.")
   
-  var lexer = animation_dsl.DSLLexer(dsl_code)
-  var tokens = lexer.tokenize()
-  
-  if size(lexer.errors) > 0
-    print(f"    ❌ Lexer errors: {lexer.errors}")
-    return false
-  end
-  
-  var transpiler = animation_dsl.SimpleDSLTranspiler(tokens)
+  var lexer = animation_dsl.create_lexer(dsl_code)
+  var transpiler = animation_dsl.SimpleDSLTranspiler(lexer)
   var generated_code = transpiler.transpile()
   
   if generated_code == nil
     print("    ❌ Transpilation failed:")
-    for error : transpiler.errors
-      print(f"      {error}")
-    end
     return false
   end
   
   print(f"    Generated code:\n{generated_code}")
   
-  # Check that 'scale' is prefixed with self. (it's a math method)
-  if string.find(generated_code, "self.scale(") < 0
-    print("    ❌ Expected to find 'self.scale(' in generated code")
+  # Check that 'scale' is prefixed with animation._math. (it's a math method)
+  if string.find(generated_code, "animation._math.scale(") < 0
+    print("    ❌ Expected to find 'animation._math.scale(' in generated code")
     return false
   else
-    print("    ✅ Found 'self.scale(' in generated code")
+    print("    ✅ Found 'animation._math.scale(' in generated code")
   end
   
-  # Check that animation functions like 'pulsating_animation' are NOT prefixed with self.
-  if string.find(generated_code, "self.pulsating_animation") >= 0
-    print("    ❌ Found 'self.pulsating_animation' - animation functions should NOT be prefixed")
+  # Check that animation functions like 'breathe' are NOT prefixed with animation._math.
+  if string.find(generated_code, "animation._math.breathe") >= 0
+    print("    ❌ Found 'animation._math.breathe' - animation functions should NOT be prefixed")
     return false
   else
-    print("    ✅ Animation functions correctly NOT prefixed with self.")
+    print("    ✅ Animation functions correctly NOT prefixed with animation._math.")
   end
   
   return true
@@ -106,12 +86,14 @@ end
 def test_is_math_method_function()
   print("\nTesting is_math_method() function directly...")
   
-  var transpiler = animation_dsl.SimpleDSLTranspiler([])
+  var dummy_lexer = animation_dsl.create_lexer("")
+  var transpiler = animation_dsl.SimpleDSLTranspiler(dummy_lexer)
   
   # Test mathematical methods
   var math_methods = ["min", "max", "abs", "round", "sqrt", "scale", "sin", "cos"]
   for method : math_methods
-    if !transpiler.is_math_method(method)
+    var entry = transpiler.symbol_table.get(method)
+    if entry == nil || entry.type != animation_dsl._symbol_entry.TYPE_MATH_FUNCTION
       print(f"    ❌ {method} should be detected as a math method")
       return false
     else
@@ -120,9 +102,10 @@ def test_is_math_method_function()
   end
   
   # Test non-mathematical methods
-  var non_math_methods = ["pulsating_animation", "solid", "color_cycle", "unknown_method"]
+  var non_math_methods = ["breathe", "solid", "color_cycle", "unknown_method"]
   for method : non_math_methods
-    if transpiler.is_math_method(method)
+    var entry = transpiler.symbol_table.get(method)
+    if entry != nil && entry.type == animation_dsl._symbol_entry.TYPE_MATH_FUNCTION
       print(f"    ❌ {method} should NOT be detected as a math method")
       return false
     else
@@ -139,7 +122,7 @@ def test_math_method_transpilation()
   # Test case 1: Simple mathematical function in computed parameter
   var dsl_code1 = 
     "set value = 50\n"
-    "animation test = pulsating_animation(color=red, period=2s)\n"
+    "animation test = breathe(color=red, period=2s)\n"
     "test.opacity = abs(value - 100)\n"
     "run test"
   
@@ -152,9 +135,9 @@ def test_math_method_transpilation()
   var dsl_code2 = 
     "set x = 10\n"
     "set y = 20\n"
-    "animation wave = pulsating_animation(color=blue, period=3s)\n"
-    "wave.min_brightness = max(min(x, y), sqrt(abs(x - y)))\n"
-    "run wave"
+    "animation w = breathe(color=blue, period=3s)\n"
+    "w.min_brightness = max(min(x, y), sqrt(abs(x - y)))\n"
+    "run w"
   
   var result2 = test_transpilation_case(dsl_code2, ["max", "min", "sqrt", "abs"], "Multiple math functions")
   if !result2
@@ -164,7 +147,7 @@ def test_math_method_transpilation()
   # Test case 3: Mathematical functions with complex expressions
   var dsl_code3 = 
     "set angle = 45\n"
-    "animation rotate = pulsating_animation(color=green, period=2s)\n"
+    "animation rotate = breathe(color=green, period=2s)\n"
     "rotate.min_brightness = round(sin(angle) * 180 + cos(angle) * 90)\n"
     "run rotate"
   
@@ -173,9 +156,9 @@ def test_math_method_transpilation()
     return false
   end
   
-  # Test case 4: Ensure non-math functions are NOT prefixed with self.
+  # Test case 4: Ensure non-math functions are NOT prefixed with animation._math.
   var dsl_code4 = 
-    "animation pulse = pulsating_animation(color=red, period=2s)\n"
+    "animation pulse = breathe(color=red, period=2s)\n"
     "pulse.min_brightness = scale(50, 0, 100)\n"
     "run pulse"
   
@@ -197,7 +180,7 @@ var test2_result = test_math_method_transpilation()
 
 if test1_result && test2_result
   print("\n🎉 All tests passed!")
-  print("✅ Mathematical methods are correctly transpiled to self.<method>() calls")
+  print("✅ Mathematical methods are correctly transpiled to animation._math.<method>() calls")
   print("✅ Non-mathematical functions are correctly left unchanged")
   print("✅ Dynamic introspection is working properly at transpile time")
 else

@@ -57,7 +57,7 @@ heart_glow_.opacity = (def (engine)
 end)(engine)  # Gentle breathing glow
 heart_glow_.priority = 5
 # Add center pulse for emphasis
-var center_pulse_ = animation.beacon_animation(engine)
+var center_pulse_ = animation.beacon(engine)
 center_pulse_.color = 0xFFFFFFFF  # White center
 center_pulse_.pos = 30  # center of strip
 center_pulse_.beacon_size = 4  # small center
@@ -72,12 +72,12 @@ center_pulse_.opacity = (def (engine)
   return provider
 end)(engine)  # Quick white flash
 # Start all animations
-engine.add_animation(background_)
-engine.add_animation(heart_glow_)
-engine.add_animation(heartbeat1_)
-engine.add_animation(heartbeat2_)
-engine.add_animation(center_pulse_)
-engine.start()
+engine.add(background_)
+engine.add(heart_glow_)
+engine.add(heartbeat1_)
+engine.add(heartbeat2_)
+engine.add(center_pulse_)
+engine.run()
 
 
 #- Original DSL source:
@@ -108,7 +108,7 @@ heart_glow.opacity = smooth(min_value=30, max_value=100, duration=1s)  # Gentle 
 heart_glow.priority = 5
 
 # Add center pulse for emphasis
-animation center_pulse = beacon_animation(
+animation center_pulse = beacon(
   color=0xFFFFFF  # White center
   pos=30          # center of strip
   beacon_size=4   # small center
